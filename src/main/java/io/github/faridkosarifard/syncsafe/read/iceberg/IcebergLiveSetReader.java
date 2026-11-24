@@ -21,6 +21,7 @@ import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Types;
 
 /**
  * Computes the live row set of an Iceberg table by scanning the chosen snapshot through {@link
@@ -56,12 +57,24 @@ public final class IcebergLiveSetReader implements LiveSetReader {
       return new LiveRowSet(summary, Map.of());
     }
 
-    Schema schema = table.schema();
+    Schema schema = snapshotSchema(table, snapshot);
     for (String key : keyColumns) {
-      if (schema.findField(key) == null) {
-        throw new IllegalArgumentException(
-            "key column '" + key + "' is not in the Iceberg schema of " + tableRef.path());
+      if (schema.asStruct().field(key) != null) {
+        continue;
       }
+      if (schema.findField(key) != null) {
+        throw new IllegalArgumentException(
+            "key column '"
+                + key
+                + "' is a nested field; only top-level columns are supported as keys");
+      }
+      throw new IllegalArgumentException(
+          "key column '"
+              + key
+              + "' is not in the Iceberg schema of snapshot "
+              + snapshot.snapshotId()
+              + " at "
+              + tableRef.path());
     }
 
     long physical = 0L;
@@ -77,11 +90,15 @@ public final class IcebergLiveSetReader implements LiveSetReader {
     IcebergGenerics.ScanBuilder builder =
         IcebergGenerics.read(table).useSnapshot(snapshot.snapshotId());
     try (CloseableIterable<Record> records = builder.build()) {
+      int[] positions = null;
       for (Record record : records) {
+        if (positions == null) {
+          positions = keyPositions(record.struct(), keyColumns, tableRef);
+        }
         live++;
-        List<Object> values = new ArrayList<>(keyColumns.size());
-        for (String key : keyColumns) {
-          values.add(record.getField(key));
+        List<Object> values = new ArrayList<>(positions.length);
+        for (int position : positions) {
+          values.add(record.get(position));
         }
         RowKey rowKey = RowKey.of(values);
         counts.merge(rowKey, 1L, Long::sum);
@@ -101,5 +118,35 @@ public final class IcebergLiveSetReader implements LiveSetReader {
             deleted,
             null);
     return new LiveRowSet(summary, counts);
+  }
+
+  /** The schema the snapshot was written with, so pinned snapshots survive later renames. */
+  private static Schema snapshotSchema(Table table, Snapshot snapshot) {
+    Integer schemaId = snapshot.schemaId();
+    Schema schema = schemaId == null ? null : table.schemas().get(schemaId);
+    return schema == null ? table.schema() : schema;
+  }
+
+  private static int[] keyPositions(
+      Types.StructType struct, List<String> keyColumns, TableRef tableRef) {
+    List<Types.NestedField> fields = struct.fields();
+    int[] positions = new int[keyColumns.size()];
+    for (int i = 0; i < keyColumns.size(); i++) {
+      positions[i] = -1;
+      for (int j = 0; j < fields.size(); j++) {
+        if (fields.get(j).name().equals(keyColumns.get(i))) {
+          positions[i] = j;
+          break;
+        }
+      }
+      if (positions[i] < 0) {
+        throw new IllegalStateException(
+            "key column '"
+                + keyColumns.get(i)
+                + "' could not be resolved in the rows read from "
+                + tableRef.path());
+      }
+    }
+    return positions;
   }
 }
