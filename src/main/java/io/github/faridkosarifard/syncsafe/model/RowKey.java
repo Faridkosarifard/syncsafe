@@ -1,5 +1,6 @@
 package io.github.faridkosarifard.syncsafe.model;
 
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -7,7 +8,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
@@ -35,8 +35,8 @@ public final class RowKey {
   /**
    * Maps a key value to one representation per logical type, so the same value read through
    * different format readers compares equal: integral numbers to {@code long}, dates to epoch days,
-   * timestamps to epoch microseconds (timestamps without a zone are read as UTC), binary to
-   * lowercase hex and UUIDs to their string form.
+   * timestamps to floored epoch microseconds, keeping any sub-microsecond part (timestamps without
+   * a zone are read as UTC), binary to lowercase hex and UUIDs to their string form.
    */
   public static Object canonicalize(Object value) {
     if (value == null) {
@@ -70,22 +70,34 @@ public final class RowKey {
       return date.toEpochDay();
     }
     if (value instanceof LocalDateTime dateTime) {
-      return epochMicros(dateTime.toInstant(ZoneOffset.UTC));
+      return epochTime(dateTime.toInstant(ZoneOffset.UTC));
     }
     if (value instanceof OffsetDateTime dateTime) {
-      return epochMicros(dateTime.toInstant());
+      return epochTime(dateTime.toInstant());
     }
     if (value instanceof ZonedDateTime dateTime) {
-      return epochMicros(dateTime.toInstant());
+      return epochTime(dateTime.toInstant());
     }
     if (value instanceof Instant instant) {
-      return epochMicros(instant);
+      return epochTime(instant);
     }
     return value;
   }
 
-  private static long epochMicros(Instant instant) {
-    return ChronoUnit.MICROS.between(Instant.EPOCH, instant);
+  /**
+   * Epoch microseconds, floored, as a {@code long} when the instant is exact to the microsecond
+   * (every Delta timestamp is). Otherwise epoch microseconds with the nanosecond remainder as a
+   * scale-3 {@link BigDecimal}, so Iceberg {@code timestamp_ns} values are never truncated.
+   */
+  private static Object epochTime(Instant instant) {
+    long micros =
+        Math.addExact(
+            Math.multiplyExact(instant.getEpochSecond(), 1_000_000L), instant.getNano() / 1_000);
+    int nanos = instant.getNano() % 1_000;
+    if (nanos == 0) {
+      return micros;
+    }
+    return BigDecimal.valueOf(micros).add(BigDecimal.valueOf(nanos, 3));
   }
 
   public List<Object> values() {
