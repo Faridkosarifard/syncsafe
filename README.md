@@ -124,6 +124,7 @@ The full schema is documented in [docs/report-format.rst](docs/report-format.rst
 - **Iceberg and Delta only.** Apache Hudi is out of scope in this release.
 - **Local filesystem tables.** The readers use Hadoop `file://` I/O. Object-store catalogs (S3, Glue, REST, Unity Catalog) are not wired up yet.
 - **Partition columns** that are not materialized in the Parquet files cannot be used as keys on the Delta side. Unpartitioned tables, and tables that write partition values into the files, work.
+- **Delta column mapping** (`delta.columnMapping.mode` `name` or `id`, which UniForm requires) is not supported yet; such tables are reported as incomplete (exit 4).
 - **Iceberg v2** position and equality deletes are covered by tests. Iceberg v3 deletion vectors are applied only to the extent `IcebergGenerics` already does so; this release does not ship a v3 fixture.
 - **One snapshot or version per side.** Syncsafe does not walk history, orphan files or object versions (see [Afterimage](https://github.com/Faridkosarifard/afterimage) for Iceberg residue after a `DELETE`).
 - **Scale:** every live row is keyed in memory. That is enough for CI fixture tables and modest production checks; very large tables need a later, spill-to-disk path.
