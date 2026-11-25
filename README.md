@@ -127,6 +127,7 @@ The full schema is documented in [docs/report-format.rst](docs/report-format.rst
 - **Delta column mapping** (`delta.columnMapping.mode` `name` or `id`, which UniForm requires) is not supported yet; such tables are reported as incomplete (exit 4).
 - **Iceberg v2** position and equality deletes are covered by tests. Iceberg v3 deletion vectors are applied only to the extent `IcebergGenerics` already does so; this release does not ship a v3 fixture.
 - **One snapshot or version per side.** Syncsafe does not walk history, orphan files or object versions (see [Afterimage](https://github.com/Faridkosarifard/afterimage) for Iceberg residue after a `DELETE`).
+- **Report JSON:** non-integer timestamp keys (Iceberg `timestamp_ns` values with a sub-microsecond part) are written as strings in `key_values`, so parsers that use IEEE doubles keep the exact value.
 - **Scale:** every live row is keyed in memory. That is enough for CI fixture tables and modest production checks; very large tables need a later, spill-to-disk path.
 - Syncsafe **does not convert, compact or rewrite** a table. It only reports whether the two live sets agree.
 

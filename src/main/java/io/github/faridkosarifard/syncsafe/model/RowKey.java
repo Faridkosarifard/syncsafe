@@ -1,6 +1,7 @@
 package io.github.faridkosarifard.syncsafe.model;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -84,20 +85,31 @@ public final class RowKey {
     return value;
   }
 
+  private static final BigInteger MICROS_PER_SECOND = BigInteger.valueOf(1_000_000L);
+  private static final BigInteger LONG_MIN = BigInteger.valueOf(Long.MIN_VALUE);
+  private static final BigInteger LONG_MAX = BigInteger.valueOf(Long.MAX_VALUE);
+
   /**
-   * Epoch microseconds, floored, as a {@code long} when the instant is exact to the microsecond
-   * (every Delta timestamp is). Otherwise epoch microseconds with the nanosecond remainder as a
-   * scale-3 {@link BigDecimal}, so Iceberg {@code timestamp_ns} values are never truncated.
+   * Epoch microseconds, floored, as a {@code long} when the instant is exact to the microsecond and
+   * the value fits in a {@code long} (every Delta timestamp is). Otherwise epoch microseconds with
+   * any nanosecond remainder as a {@link BigDecimal}, so Iceberg {@code timestamp_ns} values and
+   * instants at the edges of the microsecond range are never truncated or rejected.
    */
   private static Object epochTime(Instant instant) {
-    long micros =
-        Math.addExact(
-            Math.multiplyExact(instant.getEpochSecond(), 1_000_000L), instant.getNano() / 1_000);
-    int nanos = instant.getNano() % 1_000;
-    if (nanos == 0) {
-      return micros;
+    int nano = instant.getNano();
+    BigInteger micros =
+        BigInteger.valueOf(instant.getEpochSecond())
+            .multiply(MICROS_PER_SECOND)
+            .add(BigInteger.valueOf(nano / 1_000));
+    int nanoRemainder = nano % 1_000;
+    if (nanoRemainder == 0 && micros.compareTo(LONG_MIN) >= 0 && micros.compareTo(LONG_MAX) <= 0) {
+      return micros.longValueExact();
     }
-    return BigDecimal.valueOf(micros).add(BigDecimal.valueOf(nanos, 3));
+    BigDecimal value = new BigDecimal(micros);
+    if (nanoRemainder != 0) {
+      value = value.add(BigDecimal.valueOf(nanoRemainder, 3));
+    }
+    return value;
   }
 
   public List<Object> values() {

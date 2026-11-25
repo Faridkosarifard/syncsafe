@@ -13,6 +13,7 @@ import io.github.faridkosarifard.syncsafe.model.VerificationReport;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -96,6 +97,9 @@ public final class JsonReports {
           values.add(doubleValue);
         } else if (value instanceof Boolean boolValue) {
           values.add(boolValue);
+        } else if (value instanceof BigDecimal decimal) {
+          // Strings, not JSON numbers: IEEE double parsers would lose precision.
+          values.add(decimal.toPlainString());
         } else {
           values.add(String.valueOf(value));
         }

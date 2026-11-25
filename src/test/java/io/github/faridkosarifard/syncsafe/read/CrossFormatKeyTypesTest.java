@@ -145,6 +145,23 @@ class CrossFormatKeyTypesTest {
     assertThat(report.missingCount()).isEqualTo(2);
   }
 
+  @Test
+  void icebergNanosecondTimestampWithSubMicrosecondPartDivergesFromDeltaMicros() throws Exception {
+    LocalDateTime exact = LocalDateTime.of(2026, 1, 1, 0, 0, 0, 123_456_000);
+    LocalDateTime withNanos = exact.plusNanos(100);
+    Path iceberg = tmp.resolve("ns-sub-iceberg");
+    Path delta = tmp.resolve("ns-sub-delta");
+    writeIceberg(
+        iceberg, "3", keySchema(Types.TimestampNanoType.withoutZone()), List.of(withNanos));
+    writeDelta(
+        delta, keySchema(Types.TimestampType.withoutZone()), "timestamp_ntz", List.of(exact));
+
+    VerificationReport report = compare("delta:" + delta, "iceberg:" + iceberg);
+    assertThat(report.verdict()).isEqualTo(Verdict.DIVERGED);
+    assertThat(report.resurrectedCount()).isEqualTo(1);
+    assertThat(report.missingCount()).isEqualTo(1);
+  }
+
   /**
    * Writes the same keys to Delta and Iceberg and expects ALIGNED, then changes one key on the
    * Iceberg side and expects exactly one resurrected and one missing key.
